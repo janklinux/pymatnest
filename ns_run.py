@@ -665,7 +665,7 @@ def energy_internal(at):
     return energy_internal_pos(at.get_positions(), at.get_cell()[0,0])
 
 def eval_energy_PE(at):
-    if do_calc_ASE or do_calc_lammps:
+    if do_calc_ASE or do_calc_lammps or do_calc_quip:
         if do_calc_lammps:
             #NB only MD can make crazy positions, so maybe just do this after MD propagation?
             at.wrap()
@@ -713,7 +713,7 @@ def eval_energy(at, do_KE=True, do_PE=True):
     return energy
 
 def eval_forces(at):
-    if do_calc_ASE or do_calc_lammps:
+    if do_calc_ASE or do_calc_lammps or do_calc_quip:
         if do_calc_lammps:
             #NB only MD can make crazy positions, so maybe just do this after MD propagation?
             at.wrap()
@@ -983,17 +983,15 @@ def do_MD_atom_walk(at, movement_args, Emax, KEmax):
         if final_E is None: # didn't abort due to exception in eval_forces()
             final_E = eval_energy(at)
     else:
-        if do_calc_ASE:
+        if do_calc_ASE or do_calc_quip:
             propagate_NVE_ASE(at, dt=movement_args['MD_atom_timestep'], n_steps=movement_args['atom_traj_len'])
             final_E = eval_energy(at)
         elif do_calc_lammps:
-
             if propagate_lammps(at, dt=movement_args['MD_atom_timestep'], n_steps=movement_args['atom_traj_len'], algo='NVE'):
                 final_E = pot.results['energy'] + eval_energy(at, do_PE=False)
             else: # propagate returned success == False
                 final_E = 2.0*abs(Emax)
                 ## print("error in propagate_lammps NVE, setting final_E = 2*abs(Emax) =" , final_E)
-
         elif do_calc_fortran:
             final_E = f_MC_MD.MD_atom_NVE_walk(at, n_steps=movement_args['atom_traj_len'], timestep=movement_args['MD_atom_timestep'], debug=ns_args['debug'])
             final_E += eval_energy(at, do_PE=False, do_KE=False)
@@ -2979,7 +2977,7 @@ def main():
         global size, rank, comm, rng, np, sys, ns_analyzers
         global n_cull, n_walkers, n_walkers_per_task
         global n_extra_walk_per_task
-        global do_calc_ASE, do_calc_lammps, do_calc_internal, do_calc_fortran
+        global do_calc_ASE, do_calc_lammps, do_calc_internal, do_calc_fortran, do_calc_quip
         global energy_io, traj_io, walkers
         global n_atoms, KEmax, pot
         global MPI, f_MC_MD
@@ -3143,6 +3141,10 @@ def main():
             sys.stderr.write("WARNING: got DEPRECATED start_energy_ceiling\n")
         ns_args['random_init_max_n_tries'] = int(args.pop('random_init_max_n_tries', 100))
 
+        try:
+            ns_args['quip_string'] = str(args.pop('quip_string'))
+        except:
+            ns_args['quip_string'] = None
 
 
         ns_args['KEmax_max_T'] = float(args.pop('KEmax_max_T', -1))
@@ -3151,6 +3153,7 @@ def main():
         # parse energy_calculator
         ns_args['energy_calculator'] = args.pop('energy_calculator', 'fortran')
         do_calc_ASE = False
+        do_calc_quip = False
         do_calc_lammps = False
         do_calc_internal = False
         do_calc_fortran = False
@@ -3161,6 +3164,14 @@ def main():
                 exit_error("need ASE calculator module name ASE_calc_module\n",1)
 
             do_calc_ASE=True
+        elif ns_args['energy_calculator'] == 'quippy':
+            try:
+                from quippy.potential import Potential
+            except:
+                raise ValueError('quippy.potential not found')
+            do_calc_quip = True
+            quip_string = ns_args.pop('quip_string')
+
         elif ns_args['energy_calculator'] == 'lammps':
             try:
                 from lammpslib import LAMMPSlib
@@ -3423,7 +3434,6 @@ def main():
             print("ns_args ", pprint.pformat(ns_args))
             print("movement_args ", pprint.pformat(movement_args))
 
-
         # initialize in-situ analyzers
         try:
             ns_analyzers=[]
@@ -3449,6 +3459,8 @@ def main():
         # initialise potential
         if do_calc_ASE:
             pot = importlib.import_module(ns_args['ASE_calc_module']).calc
+        elif do_calc_quip:
+            pot = Potential(param_filename=quip_string)
         elif do_calc_internal or do_calc_fortran:
             pass
         elif do_calc_lammps:
@@ -3654,6 +3666,8 @@ def main():
                     config_ind += 1
                 if do_calc_ASE or do_calc_lammps:
                     at.calc = pot
+                if do_calc_quip:
+                    at.set_calculator(pot)
 
             if ns_args['track_configs']:
                 if comm is not None:
@@ -3785,7 +3799,9 @@ def main():
             for at in walkers:
                 if ns_args['n_extra_data'] > 0 and (not 'ns_extra_data' in at.arrays or at.arrays['ns_extra_data'].size/len(at) != ns_args['n_extra_data']):
                     at.arrays['ns_extra_data'] = np.zeros( (len(at), ns_args['n_extra_data']) )
-                if do_calc_ASE or do_calc_lammps:
+                if do_calc_ASE or do_calc_lammps or do_calc_quip:
+                    print('thisfuckshere')
+                    quit()
                     at.calc = pot
                 at.info['ns_energy'] = rand_perturb_energy(eval_energy(at), ns_args['random_energy_perturbation'])
 
