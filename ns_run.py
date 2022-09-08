@@ -3800,8 +3800,6 @@ def main():
                 if ns_args['n_extra_data'] > 0 and (not 'ns_extra_data' in at.arrays or at.arrays['ns_extra_data'].size/len(at) != ns_args['n_extra_data']):
                     at.arrays['ns_extra_data'] = np.zeros( (len(at), ns_args['n_extra_data']) )
                 if do_calc_ASE or do_calc_lammps or do_calc_quip:
-                    print('thisfuckshere')
-                    quit()
                     at.calc = pot
                 at.info['ns_energy'] = rand_perturb_energy(eval_energy(at), ns_args['random_energy_perturbation'])
 
